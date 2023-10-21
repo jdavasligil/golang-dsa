@@ -1,47 +1,47 @@
-package stack
+package stack_list
 
 import "testing"
 
-func TestNewStack (t *testing.T) {
-    stack := NewStack[rune]()
+func TestNewStackList (t *testing.T) {
+    stack := NewStackList[rune]()
 
     if (stack == nil) {
-        t.Error("Stack creation failed.")
+        t.Error("StackList creation failed.")
     }
 }
 
-func TestStackPush (t *testing.T) {
-    stack := NewStack[rune]()
+func TestStackListPush (t *testing.T) {
+    stack := NewStackList[rune]()
 
     if (stack == nil) {
-        t.Error("Stack creation failed.")
+        t.Error("StackList creation failed.")
     }
 
     val := 'A'
     stack.Push(val)
 
-    if (stack.Len() == 0) {
+    if (stack.Head == nil) {
         t.Error("Push has failed to link node.")
     }
 
-    if (stack.Data[0] != val) {
-        t.Errorf("Data = %c != %c", stack.Data[0], val)
+    if (stack.Head.Data != val) {
+        t.Errorf("Head data = %c != %c", stack.Head.Data, val)
     }
 
     prev := val
     val = 'B'
     stack.Push(val)
 
-    if (stack.Data[stack.Len() - 1] != val) {
-        t.Errorf("Head data = %c != %c", stack.Data[stack.Len() - 1], val)
+    if (stack.Head.Data != val) {
+        t.Errorf("Head data = %c != %c", stack.Head.Data, val)
     }
-    if (stack.Data[stack.Len() - 2] != prev) {
-        t.Errorf("Head data = %c != %c", stack.Data[stack.Len() - 2], prev)
+    if (stack.Head.Next.Data != prev) {
+        t.Errorf("Head data = %c != %c", stack.Head.Next.Data, prev)
     }
 }
 
-func TestStackPop (t *testing.T) {
-    stack := NewStack[rune]()
+func TestStackListPop (t *testing.T) {
+    stack := NewStackList[rune]()
     stack_runes := []rune("ABCD")
     reverse_runes := []rune("DCBA")
 
@@ -65,8 +65,8 @@ func TestStackPop (t *testing.T) {
     }
 }
 
-func TestStackTop (t *testing.T) {
-    stack := NewStack[rune]()
+func TestStackListTop (t *testing.T) {
+    stack := NewStackList[rune]()
 
     _, err := stack.Top()
 
@@ -88,8 +88,8 @@ func TestStackTop (t *testing.T) {
     }
 }
 
-func TestStackLen (t *testing.T) {
-    stack := NewStack[rune]()
+func TestStackListLen (t *testing.T) {
+    stack := NewStackList[rune]()
     var want int = 0
     got := stack.Len()
 
