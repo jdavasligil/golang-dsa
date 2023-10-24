@@ -1,5 +1,5 @@
 // Stack
-// FILO data structure using a linked list
+// FILO data structure using a dynamic array
 
 package stack
 
