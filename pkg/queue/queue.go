@@ -14,7 +14,7 @@ type Queue[T any] struct {
 
 func NewQueue[T any](capacity int) *Queue[T] {
     return &Queue[T] {
-        data:   make([]T, 0, capacity),
+        data:   make([]T, capacity, capacity),
         front:  0,
         back:   0,
         length: 0,
@@ -33,10 +33,12 @@ func (q *Queue[T]) Enqueue(data T) error {
     if (q.IsFull()) {
         return fmt.Errorf("Failure to enqueue to a full queue")
     }
+    if (!q.IsEmpty()) {
+        q.back = (q.back + 1) % cap(q.data)
+    }
 
     q.data[q.back] = data
     q.length++
-    q.back = (q.back + 1) % cap(q.data)
 
     return nil
 }
@@ -54,6 +56,22 @@ func (q *Queue[T]) Dequeue() (T, error) {
     q.front = (q.front + 1) % cap(q.data)
 
     return result, nil
+}
+
+func (q *Queue[T]) EnqueueOver(data T) T {
+    var result T
+
+    if (q.IsFull()) {
+        result, _ = q.Dequeue()
+    }
+    if (!q.IsEmpty()) {
+        q.back = (q.back + 1) % cap(q.data)
+    }
+
+    q.data[q.back] = data
+    q.length++
+
+    return result
 }
 
 func (q *Queue[T]) PeekFront() (T, error) {
@@ -84,4 +102,22 @@ func (q *Queue[T]) Clear() {
     q.front = 0
     q.back = 0
     q.length = 0
+}
+
+func (q *Queue[T]) Print() {
+    print("Queue: ")
+
+    if !q.IsEmpty() {
+        head := q.front
+
+        for head != q.back {
+            print(q.data[head])
+            print("->")
+            head = (head + 1) % cap(q.data)
+        }
+
+        print(q.data[q.back])
+    }
+
+    print("\n")
 }
