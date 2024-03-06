@@ -1,19 +1,16 @@
-// Queue
-// FIFO data structure using an array
-
-package queue
+package ring_buffer
 
 import "fmt"
 
-type Queue[T any] struct {
+type RingBuffer[T any] struct {
     data   []T
     front  int
     back   int
     length int
 }
 
-func NewQueue[T any](capacity int) *Queue[T] {
-    return &Queue[T] {
+func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
+    return &RingBuffer[T] {
         data:   make([]T, capacity, capacity),
         front:  0,
         back:   0,
@@ -21,31 +18,31 @@ func NewQueue[T any](capacity int) *Queue[T] {
     }
 }
 
-func (q *Queue[T]) IsEmpty() bool {
+func (q *RingBuffer[T]) IsEmpty() bool {
     return q.length == 0
 }
 
-func (q *Queue[T]) IsFull() bool {
+func (q *RingBuffer[T]) IsFull() bool {
     return q.length == cap(q.data)
 }
 
-func (q *Queue[T]) Enqueue(data T) error {
+func (q *RingBuffer[T]) PushFront(element T) error {
     if (q.IsFull()) {
-        return fmt.Errorf("Failure to enqueue to a full queue")
+        return fmt.Errorf("Failure to push element to front: buffer is full.")
     }
     if (!q.IsEmpty()) {
         q.back = (q.back + 1) % cap(q.data)
     }
 
-    q.data[q.back] = data
+    q.data[q.back] = element
     q.length++
 
     return nil
 }
 
-func (q *Queue[T]) Dequeue() (T, error) {
+func (q *RingBuffer[T]) PopBack() (T, error) {
     var result T
-    var err error = fmt.Errorf("Failed to dequeue from empty queue")
+    var err error = fmt.Errorf("Failed to pop element from back: buffer is empty.")
 
     if (q.IsEmpty()) {
         return result, err
@@ -58,23 +55,27 @@ func (q *Queue[T]) Dequeue() (T, error) {
     return result, nil
 }
 
-func (q *Queue[T]) EnqueueOver(data T) T {
+func (q *RingBuffer[T]) Enqueue(element T) error {
+    return q.PushFront(element)
+}
+
+func (q *RingBuffer[T]) PushFrontOver(element T) T {
     var result T
 
     if (q.IsFull()) {
-        result, _ = q.Dequeue()
+        result, _ = q.PopBack()
     }
     if (!q.IsEmpty()) {
         q.back = (q.back + 1) % cap(q.data)
     }
 
-    q.data[q.back] = data
+    q.data[q.back] = element
     q.length++
 
     return result
 }
 
-func (q *Queue[T]) PeekFront() (T, error) {
+func (q *RingBuffer[T]) PeekFront() (T, error) {
     var result T
     var err error = fmt.Errorf("Failed to obtain front of empty queue")
 
@@ -86,7 +87,7 @@ func (q *Queue[T]) PeekFront() (T, error) {
     return result, nil
 }
 
-func (q *Queue[T]) PeekBack() (T, error) {
+func (q *RingBuffer[T]) PeekBack() (T, error) {
     var result T
     var err error = fmt.Errorf("Failed to obtain back of empty queue")
 
@@ -98,14 +99,14 @@ func (q *Queue[T]) PeekBack() (T, error) {
     return result, nil
 }
 
-func (q *Queue[T]) Clear() {
+func (q *RingBuffer[T]) Clear() {
     q.front = 0
     q.back = 0
     q.length = 0
 }
 
-func (q *Queue[T]) Print() {
-    print("Queue: ")
+func (q *RingBuffer[T]) Print() {
+    print("RingBuffer: ")
 
     if !q.IsEmpty() {
         head := q.front
