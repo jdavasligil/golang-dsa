@@ -6,7 +6,7 @@
 package stack
 
 type Stack[T any] interface {
-    Push(element T) error
-    Pop() (T, error)
-    Peek() (T, error)
+	Push(element T) error
+	Pop() (T, error)
+	Top() (T, error)
 }

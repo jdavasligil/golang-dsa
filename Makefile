@@ -1,6 +1,10 @@
-build:
-		@go build -o ./target/golang-dsa ./cmd
-run:
-		@./target/golang-dsa
+.PHONY: all
+all: fmt test
+
+.PHONY: fmt
+fmt:
+		@go fmt ./...
+
+.PHONY: test
 test:
 		@go test -v ./...

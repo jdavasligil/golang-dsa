@@ -2,6 +2,3 @@
 *.o
 *.a
 *.so
-
-# Compile target directory (contains binaries)
-target/

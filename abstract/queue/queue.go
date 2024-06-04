@@ -6,7 +6,7 @@
 package queue
 
 type Queue[T any] interface {
-    Enqueue(element T) error
-    Dequeue() (T, error)
-    Peek() (T, error)
+	Enqueue(element T) error
+	Dequeue() (T, error)
+	Peek() (T, error)
 }

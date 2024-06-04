@@ -6,10 +6,10 @@
 package stack
 
 type Deque[T any] interface {
-    PushBack(element T) error
-    PushFront(element T) error
-    PopBack() (T, error)
-    PopFront() (T, error)
-    Back() (T, error)
-    Front() (T, error)
+	PushBack(element T) error
+	PushFront(element T) error
+	PopBack() (T, error)
+	PopFront() (T, error)
+	Back() (T, error)
+	Front() (T, error)
 }
