@@ -1,6 +1,9 @@
 package ring_buffer
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type RingBuffer[T any] struct {
 	data   []T
@@ -18,6 +21,20 @@ func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
 	}
 }
 
+type RingBufferFullError struct{
+	lastElement any
+}
+
+func (e *RingBufferFullError) Error() string {
+	return fmt.Sprintf("Ring buffer is full. Last element: %v", e.lastElement)
+}
+
+type RingBufferEmptyError struct{}
+
+func (e *RingBufferEmptyError) Error() string {
+	return "Ring buffer is empty."
+}
+
 func (q *RingBuffer[T]) IsEmpty() bool {
 	return q.length == 0
 }
@@ -28,7 +45,7 @@ func (q *RingBuffer[T]) IsFull() bool {
 
 func (q *RingBuffer[T]) PushBack(element T) error {
 	if q.IsFull() {
-		return fmt.Errorf("Failure to push element to front: buffer is full.")
+		return &RingBufferFullError{ lastElement: element }
 	}
 	if !q.IsEmpty() {
 		q.back = (q.back + 1) % cap(q.data)
@@ -46,10 +63,9 @@ func (q *RingBuffer[T]) Enqueue(element T) error {
 
 func (q *RingBuffer[T]) PopFront() (T, error) {
 	var result T
-	var err error = fmt.Errorf("Failed to pop element from back: buffer is empty.")
 
 	if q.IsEmpty() {
-		return result, err
+		return result, &RingBufferEmptyError{}
 	}
 
 	result = q.data[q.front]
@@ -81,10 +97,9 @@ func (q *RingBuffer[T]) PushBackOver(element T) T {
 
 func (q *RingBuffer[T]) PeekFront() (T, error) {
 	var result T
-	var err error = fmt.Errorf("Failed to obtain front of empty queue")
 
 	if q.IsEmpty() {
-		return result, err
+		return result, &RingBufferEmptyError{}
 	}
 	result = q.data[q.front]
 
@@ -93,10 +108,9 @@ func (q *RingBuffer[T]) PeekFront() (T, error) {
 
 func (q *RingBuffer[T]) PeekBack() (T, error) {
 	var result T
-	var err error = fmt.Errorf("Failed to obtain back of empty queue")
 
 	if q.IsEmpty() {
-		return result, err
+		return result, &RingBufferEmptyError{}
 	}
 	result = q.data[q.back]
 
@@ -113,20 +127,23 @@ func (q *RingBuffer[T]) Clear() {
 	q.length = 0
 }
 
-func (q *RingBuffer[T]) Print() {
-	print("RingBuffer: ")
+func (q *RingBuffer[T]) Print() string {
+	var sb strings.Builder
+	sb.WriteString("RingBuffer: ")
 
 	if !q.IsEmpty() {
 		head := q.front
 
 		for head != q.back {
-			print(q.data[head])
-			print("->")
+			sb.WriteString(fmt.Sprintf("%v", q.data[head]))
+			sb.WriteString("->")
 			head = (head + 1) % cap(q.data)
 		}
 
-		print(q.data[q.back])
+		sb.WriteString(fmt.Sprintf("%v", q.data[q.back]))
 	}
 
-	print("\n")
+	sb.WriteByte('\n')
+
+	return sb.String()
 }
