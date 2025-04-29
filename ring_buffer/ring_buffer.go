@@ -13,26 +13,29 @@ type RingBuffer[T any] struct {
 }
 
 func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
-	return &RingBuffer[T]{
-		data:   make([]T, capacity, capacity),
-		front:  0,
-		back:   0,
-		length: 0,
-	}
+	return &RingBuffer[T]{data: make([]T, capacity, capacity)}
 }
 
-type RingBufferFullError struct{
-	lastElement any
-}
+type RingBufferFullError struct{}
 
 func (e *RingBufferFullError) Error() string {
-	return fmt.Sprintf("Ring buffer is full. Last element: %v", e.lastElement)
+	return "Ring buffer is full."
+}
+
+func (e *RingBufferFullError) Is(target error) bool {
+	_, ok := target.(*RingBufferFullError)
+	return ok
 }
 
 type RingBufferEmptyError struct{}
 
 func (e *RingBufferEmptyError) Error() string {
 	return "Ring buffer is empty."
+}
+
+func (e *RingBufferEmptyError) Is(target error) bool {
+	_, ok := target.(*RingBufferEmptyError)
+	return ok
 }
 
 func (q *RingBuffer[T]) IsEmpty() bool {
@@ -45,16 +48,25 @@ func (q *RingBuffer[T]) IsFull() bool {
 
 func (q *RingBuffer[T]) PushBack(element T) error {
 	if q.IsFull() {
-		return &RingBufferFullError{ lastElement: element }
-	}
-	if !q.IsEmpty() {
-		q.back = (q.back + 1) % cap(q.data)
+		return &RingBufferFullError{}
 	}
 
 	q.data[q.back] = element
+	q.back = (q.back + 1) % cap(q.data)
 	q.length++
 
 	return nil
+}
+
+func (q *RingBuffer[T]) PushBackOver(element T) {
+	if q.IsFull() {
+		q.front = (q.front + 1) % cap(q.data)
+		q.length--
+	}
+
+	q.data[q.back] = element
+	q.back = (q.back + 1) % cap(q.data)
+	q.length++
 }
 
 func (q *RingBuffer[T]) Enqueue(element T) error {
@@ -69,30 +81,14 @@ func (q *RingBuffer[T]) PopFront() (T, error) {
 	}
 
 	result = q.data[q.front]
-	q.length--
 	q.front = (q.front + 1) % cap(q.data)
+	q.length--
 
 	return result, nil
 }
 
 func (q *RingBuffer[T]) Dequeue() (T, error) {
 	return q.PopFront()
-}
-
-func (q *RingBuffer[T]) PushBackOver(element T) T {
-	var result T
-
-	if q.IsFull() {
-		result, _ = q.PopFront()
-	}
-	if !q.IsEmpty() {
-		q.back = (q.back + 1) % cap(q.data)
-	}
-
-	q.data[q.back] = element
-	q.length++
-
-	return result
 }
 
 func (q *RingBuffer[T]) PeekFront() (T, error) {
