@@ -10,15 +10,19 @@ import (
 )
 
 func main() {
-	b := bucket.NewBucket[string](
-	32,
-	500 * time.Millisecond,
-	time.Second,
-	100 * time.Millisecond,
-	0.95,
-	2 * time.Second,
-	18 * time.Second,
-	)
+	b, err := bucket.NewBucket[string](&bucket.BucketOptions{
+		Capacity:        32,
+		LowLatency:      false,
+		DropBias:        0.90,
+		DropInterval:    333 * time.Millisecond,
+		MinDropInterval: 100 * time.Millisecond,
+		MaxDropInterval: time.Second,
+		MaxWaitTime:     5 * time.Second,
+		UpdateInterval:  24 * time.Second,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 	messages := []string{
 		"Best of luck on the runs!",
 		"Good morning everyone",
@@ -56,7 +60,7 @@ func main() {
 	go func() {
 		var idx int
 
-		shutdownTimer := time.NewTimer(24 * time.Second)
+		shutdownTimer := time.NewTimer(60 * time.Second)
 		burstTimer := time.NewTicker(6 * time.Second)
 		msgTimer := time.NewTicker(time.Second)
 
@@ -66,7 +70,7 @@ func main() {
 				b.AddDrop(messages[idx])
 				idx = (idx + 1) % len(messages)
 			case <-burstTimer.C:
-				for range 6 {
+				for range 12 {
 					b.AddDrop(messages[idx])
 					idx = (idx + 1) % len(messages)
 				}
@@ -84,12 +88,12 @@ func main() {
 	go func() {
 		for {
 			drop, err := b.AwaitDrop()
-			fmt.Println(b.Status())
+			//fmt.Println(b.Status())
 
 			if errors.Is(err, &bucket.BucketClosedError{}) {
 				log.Println("Bucket has closed. Shutting down")
 				dropsRemaining := b.Drain()
-				log.Printf("Drops Remaining: %v\n", dropsRemaining )
+				log.Printf("Drops Remaining: %v\n", dropsRemaining)
 				close(done)
 				return
 			} else if err != nil {
@@ -102,4 +106,3 @@ func main() {
 
 	<-done
 }
-

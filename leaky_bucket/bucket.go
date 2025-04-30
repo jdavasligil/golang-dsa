@@ -1,7 +1,13 @@
 // Adaptive rate FIFO MPSC queue
+//
+// TODO:
+// 		- Unit Testing
+// 		- Rate Interpolation
+
 package bucket
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -42,10 +48,29 @@ func (e *BucketClosedError) Is(target error) bool {
 	return ok
 }
 
+type BucketConstraintError struct {
+	Constraint string
+}
+
+func (e *BucketConstraintError) Error() string {
+	return fmt.Sprintf("Constraint violated: %s", e.Constraint)
+}
+
+func (e *BucketConstraintError) Is(target error) bool {
+	_, ok := target.(*BucketConstraintError)
+	return ok
+}
+
 // A leaky bucket with adaptive rate smoothing to handle backpressure.
 type Bucket[T any] struct {
 	// Contents of the bucket.
 	packets chan T
+
+	// Enables dynamic rate increase proportional to the burst size.
+	lowLatency bool
+
+	// Factor to bias rate from equilibrium. 0 < dropBias < 1
+	dropBias float64
 
 	// Blocks until the next drop is ready.
 	dropTimer *time.Timer
@@ -53,14 +78,11 @@ type Bucket[T any] struct {
 	// Time between packet drops (ns / drop).
 	dropInterval time.Duration
 
-	// Maximum time between packet drops (ns / drop).
-	maxDropInterval time.Duration
-
 	// Minimum time between packet drops (ns / drop).
 	minDropInterval time.Duration
 
-	// Factor to bias rate from equilibrium. 0 < dropBias < 1
-	dropBias float64
+	// Maximum time between packet drops (ns / drop).
+	maxDropInterval time.Duration
 
 	// Prevents drop timer and packets from blocking forever.
 	waitTimer *time.Timer
@@ -81,33 +103,73 @@ type Bucket[T any] struct {
 	packetMax atomic.Int32
 }
 
-// Bucket Constraints (unenforced):
-//
-//		(max expected rate IN) * updateInterval << capacity.
-//		0 < target < capacity.
-//		minDropInterval < dropInterval < maxDropInterval << updateInterval.
-//	 0 < dropBias ~ 1 (0.9 - 1.1)
-func NewBucket[T any](
-	capacity int,
-	dropInterval time.Duration,
-	maxDropInterval time.Duration,
-	minDropInterval time.Duration,
-	dropBias float64,
-	maxWaitTime time.Duration,
-	updateInterval time.Duration,
-) *Bucket[T] {
-	return &Bucket[T]{
-		packets:         make(chan T, capacity),
-		dropTimer:       time.NewTimer(dropInterval),
-		dropInterval:    dropInterval,
-		maxDropInterval: maxDropInterval,
-		minDropInterval: minDropInterval,
-		dropBias:        dropBias,
-		waitTimer:       time.NewTimer(maxWaitTime),
-		maxWaitTime:     maxWaitTime,
-		updateTimer:     time.NewTimer(updateInterval),
-		updateInterval:  updateInterval,
+type BucketOptions struct {
+	Capacity        int
+	LowLatency      bool
+	DropBias        float64
+	DropInterval    time.Duration
+	MinDropInterval time.Duration
+	MaxDropInterval time.Duration
+	MaxWaitTime     time.Duration
+	UpdateInterval  time.Duration
+}
+
+func NewBucket[T any](opts *BucketOptions) (*Bucket[T], error) {
+	var errs error
+
+	if opts.Capacity <= 0 {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("Capacity %d > 0", opts.Capacity),
+		})
 	}
+
+	if opts.DropBias <= 0 || opts.DropBias > 1 {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("0 < Drop Bias %.2f <= 1", opts.DropBias),
+		})
+	}
+
+	if opts.DropInterval < opts.MinDropInterval {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("Drop Interval %d > Minimum %d", opts.DropInterval.Milliseconds(), opts.MinDropInterval.Milliseconds()),
+		})
+	}
+
+	if opts.DropInterval > opts.MaxDropInterval {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("Drop Interval %d < Maximum %d", opts.DropInterval.Milliseconds(), opts.MaxDropInterval.Milliseconds()),
+		})
+	}
+
+	if opts.UpdateInterval <= opts.MaxDropInterval {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("Update Interval %d > Max Drop Interval %d", opts.UpdateInterval.Milliseconds(), opts.MaxDropInterval.Milliseconds()),
+		})
+	}
+
+	if opts.MaxWaitTime <= opts.MaxDropInterval {
+		errs = errors.Join(errs, &BucketConstraintError{
+			fmt.Sprintf("Max Wait Time %d > Max Drop Interval %d", opts.MaxWaitTime.Milliseconds(), opts.MaxDropInterval.Milliseconds()),
+		})
+	}
+
+	if errs != nil {
+		return nil, errs
+	}
+
+	return &Bucket[T]{
+		packets:         make(chan T, opts.Capacity),
+		lowLatency:      opts.LowLatency,
+		dropTimer:       time.NewTimer(opts.DropInterval),
+		dropInterval:    opts.DropInterval,
+		minDropInterval: opts.MinDropInterval,
+		maxDropInterval: opts.MaxDropInterval,
+		dropBias:        opts.DropBias,
+		waitTimer:       time.NewTimer(opts.MaxWaitTime),
+		maxWaitTime:     opts.MaxWaitTime,
+		updateTimer:     time.NewTimer(opts.UpdateInterval),
+		updateInterval:  opts.UpdateInterval,
+	}, nil
 }
 
 // Multiple producers may add drops to the bucket.
@@ -125,6 +187,13 @@ func (b *Bucket[T]) AddDrop(packet T) error {
 }
 
 // A single consumer may await drops from the bucket.
+//
+// Note that this function is blocking (until maxWaitTime).
+//
+// Expect BucketClosedError once the producer shuts down the bucket.
+//
+// The bucket will continue to drain even after shutdown. Detect shutdown
+// immediately, use a separate channel.
 func (b *Bucket[T]) AwaitDrop() (T, error) {
 	var packet T
 
@@ -162,31 +231,27 @@ func (b *Bucket[T]) AwaitDrop() (T, error) {
 // Currently makes potentially sudden changes.
 // Might be improved with interpolation.
 func (b *Bucket[T]) adapt() {
-	// Normalized error between max burst amount detected and target (zero)
-	// -1 <= epsilon <= 1
+	// Ratio of max burst amount to total capacity.
+	// 0 < epsilon <= 1
 	// Zero:     equilibrium. Rate should not change.
-	// Negative: below equilibrium. Rate should decrease.
 	// Positive: above equilibrium. Rate should increase.
-	epsilon := float64(b.packetMax.Swap(0)) / float64(cap(b.packets))
-	fmt.Printf("EPSILON: %f\n", epsilon)
+	var epsilon float64
+
+	if b.lowLatency {
+		epsilon = float64(b.packetMax.Swap(0)) / float64(cap(b.packets))
+	}
 
 	// Prevent singularity problems by clamping at 1.
 	packetsSinceLast := max(1, b.packetCount.Swap(0))
 
 	// The estimated average update interval for maintaining equilibrium (ns / drop)
 	tau := float64(b.updateInterval) / float64(packetsSinceLast)
-	fmt.Printf("TAU: %v (ms)\n", time.Duration(tau).Milliseconds())
 
-	// If epsilon is 0, seek equilibrium.
-	// If epsilon is -1 (len is furthest below target), approach zero
-	// If epsilon is +1 (len is furthest above target), approach double rate
-	fmt.Printf("DI BEFORE: %v (ms)\n", b.dropInterval.Milliseconds())
+	// Set interval to estimated equilibrium scaled by burst ratio and drop bias.
 	b.dropInterval = time.Duration(math.Ceil(tau * (1 - epsilon) * b.dropBias))
-	fmt.Printf("DI AFTER:  %v (ms)\n", b.dropInterval.Milliseconds())
 
 	// Clamp between min and max
 	b.dropInterval = max(b.minDropInterval, min(b.maxDropInterval, b.dropInterval))
-	fmt.Printf("DI CLAMPED:  %v (ms)\n", b.dropInterval.Milliseconds())
 
 	b.updateTimer.Reset(b.updateInterval)
 }
@@ -196,7 +261,7 @@ func (b *Bucket[T]) Close() {
 	close(b.packets)
 }
 
-// Drain must be called by the consumer after the producer has closed the bucket.
+// Drain may be called by the consumer after the producer has closed the bucket.
 func (b *Bucket[T]) Drain() []T {
 	dropsRemaining := make([]T, 0, len(b.packets))
 
@@ -207,7 +272,7 @@ func (b *Bucket[T]) Drain() []T {
 	return dropsRemaining
 }
 
-// Status must be called by Consumer.
+// Status must be called by the consumer.
 func (b *Bucket[T]) Status() string {
 	var sb strings.Builder
 	sb.WriteString("Bucket Status:\n")
