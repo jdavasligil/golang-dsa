@@ -8,16 +8,20 @@ import (
 )
 
 func TestLeakyBucket() {
-	b := NewBucket[string](
-	32,
-	1,
-	200 * time.Millisecond,
-	time.Second,
-	100 * time.Millisecond,
-	1.05,
-	2 * time.Second,
-	5 * time.Second,
-	)
+	b, err := NewBucket[string](&BucketOptions{
+		32,
+		false,
+		1.05,
+		200 * time.Millisecond,
+		100 * time.Millisecond,
+		time.Second,
+		2 * time.Second,
+		5 * time.Second,
+	})
+	if err != nil {
+		log.Println(err)
+	}
+
 	messages := []string{
 		"Best of luck on the runs!",
 		"Good morning everyone",
@@ -70,10 +74,7 @@ func TestLeakyBucket() {
 					idx = (idx + 1) % len(messages)
 				}
 			case <-shutdownTimer.C:
-				err := b.Close()
-				if err != nil {
-					log.Fatal("Bucket already closed!")
-				}
+				b.Close()
 				return
 			}
 		}
@@ -89,7 +90,7 @@ func TestLeakyBucket() {
 			if errors.Is(err, &BucketClosedError{}) {
 				log.Println("Bucket has closed. Shutting down")
 				dropsRemaining := b.Drain()
-				log.Printf("Drops Remaining: %v\n", dropsRemaining )
+				log.Printf("Drops Remaining: %v\n", dropsRemaining)
 				close(done)
 				return
 			} else if err != nil {
